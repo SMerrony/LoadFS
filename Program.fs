@@ -22,6 +22,7 @@ SOFTWARE.
 *)
 
 open System
+open System.IO
 
 type ExtractOption = ExtractIt | DontExtract
 type ErrorsOption = IgnoreErrors | StopOnError
@@ -37,7 +38,7 @@ type CommandLineOptions = {
     verbose: VerboseOption;
 }
 
-let semVer = "v0.9.4"
+let semVer = "v0.9.4"  // Following-on from Go version
 
 let rec parseCommandLineInner args optionsSoFar = 
     match args with 
@@ -54,7 +55,7 @@ let rec parseCommandLineInner args optionsSoFar =
         let newOptionsSoFar = { optionsSoFar with extract=ExtractIt }
         parseCommandLineInner xs newOptionsSoFar
     | "--help"::xs ->
-        printfn "UsageL LoadFS --help|--dumpfile=<filename> [--version] [--extract] [--ignoreErrors] [--list] [--summary]"
+        printfn "UsageL LoadFS --help|--dumpfile <filename> [--version] [--extract] [--ignoreErrors] [--list] [--summary]"
         parseCommandLineInner xs optionsSoFar
     | "--ignoreErrors"::xs ->
         let newOptionsSoFar = { optionsSoFar with errors=IgnoreErrors }
@@ -86,6 +87,49 @@ let parseCommandLine args =
         }
     parseCommandLineInner args defaultOptions
 
+type dgByte = byte
+type dgWord = uint16
+type dgDword = uint32
+type recordTypeT = 
+    | START = 0
+    | FSB = 1
+    | NB = 2
+    | UDA = 3
+    | ACL = 4
+    | LINK = 5
+    | START_BLOCK = 6
+    | DATA_BLOCK = 7
+    | END_BLOCK = 8
+    | END = 9
+type recordHeader = {
+    recordType: recordTypeT;
+    recordLength: int;
+    }
+type SOD = {
+    header: recordHeader;
+    dumpFormatRevision: dgWord;
+    dumpTimeSecs: dgWord;
+    dumpTimeMins: dgWord;
+    dumpTimeHours: dgWord;
+    dumpTimeDay: dgWord;
+    dumpTimeMonth: dgWord;
+    dumpTimeYear: dgWord;
+    }
+type FSTATentryType = 
+    | FLNK = 0
+    | FDIR = 12
+    | FDMP = 64 // inferred
+    | FSTF = 67
+    | FTXT = 68
+    | FPRV = 74
+    | FPRG = 87
+type dataHeader = {
+    header: recordHeader;
+    byteAddress: dgWord;
+    byteLength: dgWord;
+    alignmentCount: dgWord;
+    }
+
 [<EntryPoint>]
 let main argv =
     let options = parseCommandLine (argv |> Array.toList)
@@ -95,5 +139,8 @@ let main argv =
         1
     | _ -> 
         printfn "DEBUG: Processing DUMP file %s" options.dumpfilename
+        let dfStream = File.OpenRead options.dumpfilename // TODO error handling
+        let bufferSize = 512
+        let mutable buffer : byte[] = Array.zeroCreate bufferSize
 
         0 // return an integer exit code
