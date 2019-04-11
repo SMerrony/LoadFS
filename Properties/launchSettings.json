@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "LoadFS": {
+      "commandName": "Project",
+      "commandLineArgs": "--version --summary --dumpfile file7.dmp",
+      "workingDirectory": "C:\\Users\\steve\\source\\repos\\LoadFS\\TestData"
+    }
+  }
+}

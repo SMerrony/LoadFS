@@ -36,6 +36,7 @@ type CommandLineOptions = {
     list: ListOption;
     summary: SummaryOption;
     verbose: VerboseOption;
+    oops: bool;
 }
 
 let semVer = "v0.9.4"  // Following-on from Go version
@@ -47,7 +48,8 @@ let rec parseCommandLineInner args optionsSoFar =
         match xs with
         | [] ->
             printfn "ERROR: No dumpfile specified"
-            parseCommandLineInner xs optionsSoFar
+            let newOptionsSoFar = { optionsSoFar with oops=true }
+            parseCommandLineInner [] newOptionsSoFar
         | x::xss ->
             let newOptionsSoFar = { optionsSoFar with dumpfilename=x}
             parseCommandLineInner xss newOptionsSoFar
@@ -56,7 +58,8 @@ let rec parseCommandLineInner args optionsSoFar =
         parseCommandLineInner xs newOptionsSoFar
     | "--help"::xs ->
         printfn "UsageL LoadFS --help|--dumpfile <filename> [--version] [--extract] [--ignoreErrors] [--list] [--summary]"
-        parseCommandLineInner xs optionsSoFar
+        let newOptionsSoFar = { optionsSoFar with oops=true }
+        parseCommandLineInner [] newOptionsSoFar
     | "--ignoreErrors"::xs ->
         let newOptionsSoFar = { optionsSoFar with errors=IgnoreErrors }
         parseCommandLineInner xs newOptionsSoFar
@@ -84,6 +87,7 @@ let parseCommandLine args =
         list = DontListFiles;
         summary = WithoutSummary;
         verbose = TerseOutput;
+        oops = false;
         }
     parseCommandLineInner args defaultOptions
 
@@ -130,17 +134,26 @@ type dataHeader = {
     alignmentCount: dgWord;
     }
 
+
+
 [<EntryPoint>]
 let main argv =
     let options = parseCommandLine (argv |> Array.toList)
-    match options.dumpfilename with 
-    | "" -> 
-        printfn "ERROR: No DUMP file specified"
+    match options.oops with
+    | true -> 
+        Environment.Exit 1
         1
-    | _ -> 
-        printfn "DEBUG: Processing DUMP file %s" options.dumpfilename
-        let dfStream = File.OpenRead options.dumpfilename // TODO error handling
-        let bufferSize = 512
-        let mutable buffer : byte[] = Array.zeroCreate bufferSize
+    | false ->
+        match options.dumpfilename with 
+        | "" ->
+            printfn "ERROR: No DUMP file specified"
+            Environment.Exit 1
+            1
+        | _ -> 
+            printfn "DEBUG: Processing DUMP file %s" options.dumpfilename
+            let dfStream = File.OpenRead options.dumpfilename // TODO error handling
+            let bufferSize = 512
+            let mutable buffer : byte[] = Array.zeroCreate bufferSize
 
-        0 // return an integer exit code
+            0 // return an integer exit code
+
