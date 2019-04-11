@@ -134,7 +134,103 @@ type dataHeader = {
     alignmentCount: dgWord;
     }
 
+let readBlob (numBytes : int) (reader : BinaryReader) (desc : string) =
+    let mutable buffer : byte[] = Array.zeroCreate numBytes
+    let bytesRead = reader.Read( buffer, 0, numBytes ) // TODO handle error
+    buffer
 
+let readHeader (reader : BinaryReader) : recordHeader =
+    let twoBytes = readBlob 2 reader "header"
+    let recordTypeAsInt = int ((twoBytes.[0] >>> 2) &&& 0xffuy)
+    {
+        recordType = enum recordTypeAsInt;
+        recordLength = int (((twoBytes.[0] &&& 0x03uy) <<< 8 ) ||| twoBytes.[1]);
+    }
+
+let readWord (reader : BinaryReader) : dgWord = 
+    let twoBytes = readBlob 2 reader "DG Word"
+    uint16 twoBytes.[0] <<< 8 ||| uint16 twoBytes.[1]
+
+let readSOD dumpStream : SOD =
+    let hdr = readHeader dumpStream
+    match hdr.recordType with 
+    | recordTypeT.START ->
+        printfn "DEBUG: Found header for SOD"  
+    | _ ->
+        printfn "ERROR: This does not appear to be an AOS/VS DUMP_II or DUMP_III file (No SOD record found)."
+        Environment.Exit 1
+    {
+        header = hdr;
+        dumpFormatRevision = readWord dumpStream;
+        dumpTimeSecs = readWord dumpStream;
+        dumpTimeMins = readWord dumpStream;
+        dumpTimeHours = readWord dumpStream;
+        dumpTimeDay = readWord dumpStream;
+        dumpTimeMonth = readWord dumpStream;
+        dumpTimeYear = readWord dumpStream;
+    }
+
+let mutable fsbBlob : byte [] = Array.zeroCreate 0
+let mutable loadIt = false
+let separator = "\\"
+let mutable workingDir = ""
+
+let processNameBlock ( options : CommandLineOptions ) ( blockLen : int) (reader : BinaryReader) : string = 
+    let nameBytes = readBlob blockLen reader "Name"
+    let fileName = (System.Text.Encoding.ASCII.GetString nameBytes).TrimEnd [| '\x00' |]
+    if options.summary = WithSummary && options.verbose = VerboseOutput then    
+        printfn ""
+    let mutable fileType = ""
+    let fstatType = int nameBytes.[1] |> enum
+    let loadIt = 
+        match fstatType with 
+        | FSTATentryType.FLNK -> 
+            let fileType = "=>Link=>"
+            false
+        | FSTATentryType.FDIR ->
+            let fileType = "<Directory>"
+            let workingDir = workingDir + separator + fileName
+            //if options.extract = ExtractIt then
+            // TODO
+            false
+        | FSTATentryType.FSTF ->
+            let fileType = "Symbol Table"
+            true
+        | FSTATentryType.FTXT ->
+            let fileType = "Text File"
+            true
+        | FSTATentryType.FPRG | FSTATentryType.FPRV ->
+            let fileType = "Program File"
+            true
+        | _ -> // TODO we don't explicitly recognise the type - get definitive list from paru.32.sr
+            let fileType = "file"
+            true
+    if options.summary = WithSummary then
+        let displayPath = if workingDir = "" then fileName else workingDir + separator + fileName
+        printf "%-12s: %-48s" fileType displayPath
+        if options.verbose = VerboseOutput && fstatType = FSTATentryType.FDIR then
+            printfn ""
+        else
+            printf "\t"
+    // TODO extract and load code...
+    fileName
+    
+
+let handleRecordHeader ( options : CommandLineOptions ) ( recHdr : recordHeader ) (reader : BinaryReader) : bool = 
+    if options.verbose = VerboseOutput then
+        printfn "Found block of type: %A length: %i" recHdr.recordType recHdr.recordLength
+    match recHdr.recordType with
+    | recordTypeT.START ->
+        printfn "ERROR: Another START record found in DUMP - this should not happen"
+        Environment.Exit 1
+        false
+    | recordTypeT.FSB ->
+        let fsbBlob = readBlob recHdr.recordLength reader "FSB"
+        false
+    | recordTypeT.NB ->
+        let fileName = processNameBlock options recHdr.recordLength reader
+        true
+    
 
 [<EntryPoint>]
 let main argv =
@@ -146,14 +242,23 @@ let main argv =
     | false ->
         match options.dumpfilename with 
         | "" ->
-            printfn "ERROR: No DUMP file specified"
+            printfn "ERROR: No DUMP file specified, specify with --dumpfile <dumpfile> option"
             Environment.Exit 1
             1
         | _ -> 
             printfn "DEBUG: Processing DUMP file %s" options.dumpfilename
             let dfStream = File.OpenRead options.dumpfilename // TODO error handling
+            use reader = new BinaryReader( dfStream )
             let bufferSize = 512
-            let mutable buffer : byte[] = Array.zeroCreate bufferSize
+            
+            // there should always be a SOD record...
+            let sod = readSOD reader
+            if options.summary =  WithSummary || options.verbose = VerboseOutput then
+                printfn "Summary of DUMP file : %s" options.dumpfilename
+                printfn "AOS/VS DUMP version  : %i" sod.dumpFormatRevision
+                printfn "DUMP date (y-m-d)    : %i-%i-%i" sod.dumpTimeYear sod.dumpTimeMonth sod.dumpTimeDay
+                printfn "DUMP time (hh:mm:ss) : %i:%i:%i" sod.dumpTimeHours sod.dumpTimeMins sod.dumpTimeSecs
+
 
             0 // return an integer exit code
 
